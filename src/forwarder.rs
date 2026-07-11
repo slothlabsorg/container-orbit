@@ -56,9 +56,13 @@ async fn reconcile(cfg: &Config, current: &mut HashSet<u16>, desired: HashSet<u1
         match ssh::add_forward(cfg, port).await {
             Ok(()) => {
                 current.insert(port);
+                tracing::info!(port, "forwarding localhost:{port} -> host:{port}");
                 println!("  + forwarding localhost:{port} → host:{port}");
             }
-            Err(e) => eprintln!("  ! could not forward {port}: {e}"),
+            Err(e) => {
+                tracing::warn!(port, error = %e, "could not forward");
+                eprintln!("  ! could not forward {port}: {e}");
+            }
         }
     }
     for &port in current
@@ -69,52 +73,69 @@ async fn reconcile(cfg: &Config, current: &mut HashSet<u16>, desired: HashSet<u1
     {
         let _ = ssh::cancel_forward(cfg, port).await;
         current.remove(&port);
+        tracing::info!(port, "stopped forwarding {port}");
         println!("  - stopped forwarding {port}");
     }
 }
 
 /// Run the reconciler until the process is asked to stop. Performs an initial
-/// reconcile, then reacts to every container event.
+/// reconcile, then reacts to every container event. The docker event stream can
+/// drop (idle timeouts, the forwarded socket blipping); rather than tearing down
+/// every forward we log it and re-subscribe with a short backoff, keeping the
+/// existing forwards in place so the connection stays transparent.
 pub async fn run(cfg: &Config, socket: &Path) -> Result<()> {
     let docker = connect(socket)?;
     docker
         .ping()
         .await
         .context("forwarded docker socket is not responding")?;
+    tracing::info!(socket = %socket.display(), "forwarder started");
 
     let mut current: HashSet<u16> = HashSet::new();
-    reconcile(
-        cfg,
-        &mut current,
-        desired_ports(&docker).await.unwrap_or_default(),
-    )
-    .await;
+    let mut backoff_ms = 500u64;
 
-    let mut events = docker.events(Some(EventsOptions::<String> {
-        ..Default::default()
-    }));
+    loop {
+        // (Re)sync from the source of truth on every (re)connect.
+        let desired = desired_ports(&docker)
+            .await
+            .unwrap_or_else(|_| current.clone());
+        reconcile(cfg, &mut current, desired).await;
 
-    while let Some(event) = events.next().await {
-        match event {
-            Ok(_) => {
-                // Cheap to recompute; the container list is the source of truth.
-                let desired = desired_ports(&docker)
-                    .await
-                    .unwrap_or_else(|_| current.clone());
-                reconcile(cfg, &mut current, desired).await;
-            }
-            Err(e) => {
-                eprintln!("! docker event stream error: {e}");
-                break;
+        let mut events = docker.events(Some(EventsOptions::<String>::default()));
+        tracing::debug!("subscribed to docker event stream");
+
+        let mut clean = true;
+        while let Some(event) = events.next().await {
+            match event {
+                Ok(ev) => {
+                    backoff_ms = 500; // healthy stream resets backoff
+                    tracing::trace!(action = ?ev.action, "docker event");
+                    let desired = desired_ports(&docker)
+                        .await
+                        .unwrap_or_else(|_| current.clone());
+                    reconcile(cfg, &mut current, desired).await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "docker event stream dropped — reconnecting");
+                    clean = false;
+                    break;
+                }
             }
         }
-    }
 
-    // Stream ended (daemon gone / connection dropped): drop our forwards.
-    for &port in current.clone().iter() {
-        let _ = ssh::cancel_forward(cfg, port).await;
+        // If the stream ended, wait and try again (keeping forwards intact). The
+        // process is stopped externally by `orbit down` (SIGTERM), not from here.
+        if clean {
+            tracing::debug!("event stream ended; reconnecting");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+        backoff_ms = (backoff_ms * 2).min(10_000);
+
+        // If the socket is gone entirely, keep looping; ping just logs.
+        if let Err(e) = docker.ping().await {
+            tracing::warn!(error = %e, "forwarded socket not responding; will retry");
+        }
     }
-    Ok(())
 }
 
 /// Snapshot of the currently-published ports — used by `orbit status`/`ports`.

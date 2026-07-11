@@ -1,8 +1,13 @@
 pub mod doctor;
 pub mod down;
 pub mod host_init;
+pub mod host_setup;
 pub mod link;
+pub mod logs;
+pub mod mcp;
 pub mod ports;
 pub mod run_worker;
+pub mod service;
+pub mod setup;
 pub mod status;
 pub mod up;

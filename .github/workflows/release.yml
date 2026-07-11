@@ -1,0 +1,121 @@
+name: release
+
+# Tag a version to cut a release:  git tag v0.1.0 && git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # Cross-compile the `orbit` binary for every supported platform and attach a
+  # per-target archive (+ sha256) to the GitHub Release for this tag.
+  binaries:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin,        os: macos-latest }
+          - { target: x86_64-apple-darwin,         os: macos-latest }
+          - { target: x86_64-unknown-linux-gnu,    os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-gnu,   os: ubuntu-latest }
+          - { target: x86_64-pc-windows-msvc,      os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds for the target (using `cross` when needed, e.g. linux-aarch64),
+      # archives as orbit-<target>.{tar.gz,zip}, writes a .sha256, and uploads
+      # to the release for this tag (creating it if missing).
+      - name: Build & upload
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: orbit
+          target: ${{ matrix.target }}
+          archive: orbit-$target
+          checksum: sha256
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Bump the Homebrew formula in slothlabsorg/homebrew-tap after the binaries
+  # are published. Requires a HOMEBREW_TAP_TOKEN secret (fine-grained PAT with
+  # Contents:Write on the tap repo) — same pattern as the other Orbit tools.
+  # Skipped automatically if the secret isn't set.
+  homebrew:
+    needs: binaries
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref_name, '-') }}   # skip prereleases (v1.0.0-rc1)
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Bump tap formula
+        if: ${{ env.TAP_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          fetch_sha() { curl -fsSL "$BASE/$1.sha256" | awk '{print $1}'; }
+          SHA_ARM_MAC=$(fetch_sha orbit-aarch64-apple-darwin.tar.gz)
+          SHA_X86_MAC=$(fetch_sha orbit-x86_64-apple-darwin.tar.gz)
+          SHA_X86_LNX=$(fetch_sha orbit-x86_64-unknown-linux-gnu.tar.gz)
+          SHA_ARM_LNX=$(fetch_sha orbit-aarch64-unknown-linux-gnu.tar.gz)
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/slothlabsorg/homebrew-tap.git" tap
+          cd tap
+          mkdir -p Formula
+          cat > Formula/container-orbit.rb <<EOF
+          class ContainerOrbit < Formula
+            desc "Delegate Docker to a beefier LAN machine over SSH, with automatic port forwarding"
+            homepage "https://slothlabs.org/container-orbit"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "${BASE}/orbit-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_ARM_MAC}"
+              end
+              on_intel do
+                url "${BASE}/orbit-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_X86_MAC}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${BASE}/orbit-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_ARM_LNX}"
+              end
+              on_intel do
+                url "${BASE}/orbit-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_X86_LNX}"
+              end
+            end
+
+            def install
+              bin.install "orbit"
+            end
+
+            test do
+              assert_match "orbit", shell_output("#{bin}/orbit --version")
+            end
+          end
+          EOF
+          git config user.name "slothlabs-ci"
+          git config user.email "ci@slothlabs.org"
+          git add Formula/container-orbit.rb
+          git commit -m "container-orbit ${VERSION}" || echo "no changes"
+          git push
+
+# ── Signed native installers (.pkg / .exe) ──────────────────────────────────
+# These need your signing certificates and are intentionally left as a follow-up:
+#   • macOS .pkg  → build with `pkgbuild --identifier org.slothlabs.orbit \
+#       --install-location /usr/local/bin --root <dir-with-orbit> orbit.pkg`,
+#       then `productsign`/`notarytool` using a Developer ID cert
+#       (secrets: MACOS_CERT_P12, MACOS_CERT_PASSWORD, AC_API_KEY…).
+#   • Windows .exe/.msi → `signtool sign /fd SHA256` with an Authenticode cert
+#       (secret: WINDOWS_PFX_BASE64, WINDOWS_PFX_PASSWORD).
+# Until those secrets exist, brew + install.sh + install.ps1 (below) are the
+# frictionless install paths and need no signing.

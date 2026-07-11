@@ -29,16 +29,44 @@ Desktop and colima.
 
 ## Install
 
+**macOS / Linux — Homebrew:**
+
 ```bash
-cargo build --release
-# binary at target/release/orbit  (put it on your PATH)
+brew install slothlabsorg/tap/container-orbit
+```
+
+**macOS / Linux — one-line script:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/slothlabsorg/container-orbit/main/dist/install.sh | sh
+```
+
+**Windows — PowerShell:**
+
+```powershell
+irm https://raw.githubusercontent.com/slothlabsorg/container-orbit/main/dist/install.ps1 | iex
+```
+
+**From source:**
+
+```bash
+cargo build --release   # binary at target/release/orbit
 ```
 
 ## Quick start
 
+The fastest path is the guided wizard — it finds the host on your LAN, sets up
+the SSH key (authorizing it if needed), links, and runs an end-to-end self-test:
+
+```bash
+orbit setup            # ~2 minutes, interactive — the recommended way to start
+```
+
+Prefer to do it by hand? The individual commands still work:
+
 ```bash
 # On the beefy machine (the host):
-orbit host init                 # checks Docker + SSH, prints the join string
+orbit host setup                # checks Docker + SSH, prints the join string
 
 # On your laptop (the client):
 orbit link user@192.168.1.42    # installs the SSH key, detects the socket, makes a context
@@ -55,13 +83,50 @@ orbit down                      # restore your previous context, drop every forw
 
 | Command | Where | What it does |
 |---|---|---|
-| `orbit host init` | host | Verify Docker + SSH, detect the socket adapter, print the join string. Idempotent. |
+| `orbit setup` | client | **Guided, zero-friction setup** — discover host, authorize key, link, up, self-test. |
+| `orbit host setup` / `host init` | host | Verify Docker + SSH, detect the socket adapter, print the join string. Idempotent. |
+| `orbit host add-key "<pubkey>"` | host | Authorize a client's SSH public key (when password SSH is disabled). |
 | `orbit link <user@host>` | client | Install the SSH key, detect the remote socket, create the `orbit` docker context. |
 | `orbit up [--foreground]` | client | Switch to the host, open the multiplexed SSH master + socket forward, start the port reconciler. |
 | `orbit down` | client | Restore the previous context, close every forward and the master connection. |
 | `orbit status` | client | Linked host, connection state, forwarded ports, remote resource usage. |
 | `orbit ports [add\|rm <port>]` | client | List active forwards; manually add/remove a TCP forward (non-Docker services). |
+| `orbit logs [-f]` | client | Show (and follow) the forwarder log. |
+| `orbit service install\|uninstall\|status` | client | Run orbit at login (launchd / systemd user unit). |
+| `orbit mcp` | client | Start the MCP server so AI assistants can drive orbit (see below). |
 | `orbit doctor` | both | Diagnose SSH, remote daemon, forwarded socket and context — with the fix for each. |
+
+Add `-v`, `-vv`, or `-vvv` to any command for increasingly verbose logs (every
+ssh/forward action), and `--log-file <path>` to also write them to a file.
+
+## Run it as a service
+
+Keep the delegation + forwarding alive across logins/reboots:
+
+```bash
+orbit service install     # launchd agent (macOS) or systemd --user unit (Linux)
+orbit service status
+orbit service uninstall
+```
+
+## Talk to it from an AI assistant (MCP)
+
+orbit ships a built-in [MCP](https://modelcontextprotocol.io) server, so Claude
+(or any MCP client) can check status, bring orbit up/down, manage forwards, and
+run `doctor` in plain language:
+
+```bash
+# Claude Code:
+claude mcp add orbit -- orbit mcp
+```
+
+```jsonc
+// Claude Desktop — mcpServers entry:
+{ "mcpServers": { "orbit": { "command": "orbit", "args": ["mcp"] } } }
+```
+
+Interactive setup stays in your terminal — the server points the assistant at
+`orbit setup` rather than trying to proxy prompts.
 
 ## How it works
 

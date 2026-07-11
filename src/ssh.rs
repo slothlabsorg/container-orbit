@@ -72,6 +72,8 @@ pub async fn test_connection(cfg: &Config) -> Result<()> {
     args.push("true".into());
 
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    tracing::debug!(target = %cfg.ssh_target(), "probing SSH connectivity");
+    tracing::trace!(?refs, "ssh (test_connection)");
     if !util::succeeds("ssh", &refs).await {
         bail!(
             "cannot reach {} over SSH with the orbit key.\n\
@@ -93,6 +95,7 @@ pub async fn remote_exec(cfg: &Config, command: &str) -> Result<String> {
     args.push(cfg.ssh_target());
     args.push(command.into());
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    tracing::trace!(%command, "remote_exec");
     util::run("ssh", &refs).await
 }
 
@@ -135,6 +138,8 @@ pub async fn start_master(cfg: &Config, local_sock: &Path, remote_sock: &str) ->
     ]);
 
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    tracing::debug!(local = %local_sock.display(), remote = %remote_sock, "opening SSH master + docker socket forward");
+    tracing::trace!(?refs, "ssh (start_master)");
     util::run("ssh", &refs)
         .await
         .context("failed to open SSH master connection / forward docker socket")?;
@@ -164,6 +169,7 @@ pub async fn add_forward(cfg: &Config, port: u16) -> Result<()> {
         cfg.ssh_target(),
     ]);
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    tracing::debug!(port, "ssh -O forward localhost:{port} -> host:{port}");
     util::run("ssh", &refs)
         .await
         .with_context(|| format!("could not forward port {port} (already in use locally?)"))?;
@@ -172,6 +178,7 @@ pub async fn add_forward(cfg: &Config, port: u16) -> Result<()> {
 
 /// Remove a previously added forward.
 pub async fn cancel_forward(cfg: &Config, port: u16) -> Result<()> {
+    tracing::debug!(port, "ssh -O cancel (stop forwarding {port})");
     let mut args = control_opts()?;
     args.extend([
         "-O".into(),

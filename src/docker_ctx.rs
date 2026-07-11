@@ -45,6 +45,7 @@ pub async fn create_or_update(name: &str, endpoint: &str, description: &str) -> 
 }
 
 pub async fn use_context(name: &str) -> Result<()> {
+    tracing::debug!(context = %name, "docker context use");
     util::run("docker", &["context", "use", name])
         .await
         .with_context(|| format!("could not switch to docker context `{name}`"))?;
