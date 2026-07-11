@@ -93,6 +93,7 @@ pub async fn run(
     println!("      {}  {}  keep it running across logins", "›".dimmed(), "orbit service install".cyan());
     println!("      {}  {}  connect an AI assistant", "›".dimmed(), "orbit mcp".cyan());
     println!("      {}  {}  stop and restore local docker", "›".dimmed(), "orbit down".cyan());
+    util::funding_note();
     Ok(())
 }
 

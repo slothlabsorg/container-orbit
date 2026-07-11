@@ -1,5 +1,6 @@
 pub mod doctor;
 pub mod down;
+pub mod funding;
 pub mod host_init;
 pub mod host_setup;
 pub mod link;

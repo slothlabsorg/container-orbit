@@ -152,6 +152,13 @@ Interactive setup stays in your terminal — the server points the assistant at
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full design.
 
+## Support
+
+orbit is built with ♥ by SlothLabs — free and open source, forever. If it saves
+your laptop (and your RAM), consider supporting the work: run `orbit funding`, or
+visit the [funding page](https://slothlabs.org/pricing), [Ko-fi](https://ko-fi.com/slothlabs),
+or [GitHub Sponsors](https://github.com/sponsors/slothlabsorg).
+
 ## License
 
 MIT

@@ -34,6 +34,7 @@ pub async fn run() -> Result<()> {
     cfg.previous_context = None;
     cfg.save()?;
     util::ok("done — docker is back on your local engine");
+    util::funding_note();
     Ok(())
 }
 

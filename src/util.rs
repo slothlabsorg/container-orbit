@@ -58,3 +58,17 @@ pub fn info(label: &str, value: &str) {
 pub fn header(msg: &str) {
     println!("\n{}", msg.bold().underline());
 }
+
+/// The SlothLabs funding page.
+pub const FUNDING_URL: &str = "https://slothlabs.org/pricing";
+
+/// A gentle one-line reminder shown when orbit connects/disconnects, that this
+/// is built with love and free — with a pointer to the funding page.
+pub fn funding_note() {
+    println!(
+        "\n{} built with {} by SlothLabs — free & open source. Support: {}",
+        "♥".magenta(),
+        "love".magenta(),
+        FUNDING_URL.cyan().underline()
+    );
+}

@@ -67,6 +67,7 @@ pub async fn run(foreground: bool) -> Result<()> {
     println!();
     util::ok("Docker now runs on the host. `docker run -p 8080:80 …` → curl localhost:8080");
     println!("  Stop anytime with `orbit down`.");
+    util::funding_note();
     Ok(())
 }
 

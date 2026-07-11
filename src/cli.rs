@@ -105,6 +105,9 @@ pub enum Command {
     /// Start the MCP server (stdio) so AI assistants can drive orbit.
     Mcp,
 
+    /// Support the project — it's built with love, and free.
+    Funding,
+
     /// Internal: the detached forwarder worker. Not for direct use.
     #[command(hide = true)]
     Forward,

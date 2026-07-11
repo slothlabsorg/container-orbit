@@ -51,6 +51,7 @@ async fn main() {
             ServiceCmd::Status => commands::service::status().await,
         },
         Command::Mcp => commands::mcp::run().await,
+        Command::Funding => commands::funding::run().await,
         Command::Forward => commands::run_worker::run().await,
     };
 
