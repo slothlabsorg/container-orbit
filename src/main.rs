@@ -5,6 +5,7 @@ mod docker_ctx;
 mod forwarder;
 mod host;
 mod mcp;
+mod metrics;
 mod net_scan;
 mod ssh;
 mod util;

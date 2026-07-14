@@ -6,6 +6,7 @@ use owo_colors::OwoColorize;
 use crate::config;
 use crate::docker_ctx;
 use crate::forwarder;
+use crate::metrics;
 use crate::ssh;
 use crate::util;
 
@@ -42,7 +43,7 @@ pub async fn run() -> Result<()> {
     }
 
     // Remote resources + ports (through the forwarded socket).
-    print_remote().await;
+    print_remote(&cfg).await;
     Ok(())
 }
 
@@ -70,28 +71,51 @@ fn daemon_alive() -> bool {
             .unwrap_or(false)
 }
 
-async fn print_remote() {
+async fn print_remote(cfg: &crate::config::Config) {
     let socket = match config::local_docker_socket() {
         Ok(s) => s,
         Err(_) => return,
     };
 
-    if let Ok(docker) = forwarder::connect(&socket) {
-        if let Ok(info) = docker.info().await {
-            util::header("Remote engine");
-            util::info("version", info.server_version.as_deref().unwrap_or("?"));
-            util::info("CPUs", &info.ncpu.unwrap_or(0).to_string());
-            util::info("memory", &fmt_gib(info.mem_total.unwrap_or(0)));
+    if let Some(r) = metrics::remote_metrics(&socket).await {
+        util::header("Remote engine");
+        util::info("version", &r.version);
+        util::info("CPUs", &r.ncpu.to_string());
+        util::info("memory", &metrics::fmt_gib(r.mem_total));
+        util::info(
+            "containers",
+            &format!("{} running / {} total", r.running, r.containers),
+        );
+        util::info("images", &r.images.to_string());
+
+        // The part that makes people fall in love: what your laptop ISN'T doing.
+        util::header("You're offloading to the host");
+        let load = metrics::remote_load(cfg).await;
+        util::info(
+            "processor",
+            &format!(
+                "{} cores{}",
+                r.ncpu,
+                load.map(|l| format!(" · load {l}")).unwrap_or_default()
+            ),
+        );
+        if r.offloaded_mem > 0 {
             util::info(
-                "containers",
+                "RAM in use by containers",
                 &format!(
-                    "{} running / {} total",
-                    info.containers_running.unwrap_or(0),
-                    info.containers.unwrap_or(0)
+                    "{} (of {} on the host)",
+                    metrics::fmt_gib_u(r.offloaded_mem),
+                    metrics::fmt_gib(r.mem_total)
                 ),
             );
-            util::info("images", &info.images.unwrap_or(0).to_string());
         }
+        println!(
+            "  {} {} running on {} — none of it on this laptop {}",
+            "›".dimmed(),
+            format!("{} containers", r.running).magenta(),
+            cfg.host_addr.white(),
+            "♥".magenta(),
+        );
     }
 
     util::header("Forwarded ports");
@@ -107,11 +131,4 @@ async fn print_remote() {
         ),
         Err(e) => util::warn(&format!("could not read ports: {e}")),
     }
-}
-
-fn fmt_gib(bytes: i64) -> String {
-    if bytes <= 0 {
-        return "?".into();
-    }
-    format!("{:.1} GiB", bytes as f64 / 1024.0 / 1024.0 / 1024.0)
 }

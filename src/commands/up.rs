@@ -2,6 +2,7 @@
 //! and start the port reconciler. Detaches by default so you can keep working.
 
 use anyhow::{Context, Result};
+use owo_colors::OwoColorize;
 use std::process::Stdio;
 
 use crate::config::{self, Config};
@@ -41,8 +42,12 @@ pub async fn run(foreground: bool) -> Result<()> {
     util::ok(&format!("connected to {}", cfg.ssh_target()));
 
     if foreground {
-        util::ok("forwarding ports (foreground — Ctrl-C to stop)\n");
+        util::ok("forwarding ports (foreground — Ctrl-C to stop)");
         write_pid(std::process::id())?;
+        // CLI dashboard: specs of both machines + what we're offloading, then
+        // live logs stream below it.
+        crate::metrics::print_dashboard(&cfg).await;
+        println!("{}", "live logs:".dimmed());
         let res = tokio::select! {
             r = forwarder::run(&cfg, &local_sock) => r,
             _ = tokio::signal::ctrl_c() => Ok(()),
